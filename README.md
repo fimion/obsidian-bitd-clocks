@@ -2,6 +2,8 @@
 
 An [Obsidian](https://obsidian.md) plugin that renders *Blades in the Dark*–style progress clocks right inside your notes. Clock state lives in plain YAML inside a `clock` code block, so your notes stay readable and portable.
 
+![Blades in the Dark clocks rendered in an Obsidian note: a single 4-slice clock and a block containing 6- and 8-slice clocks, each with filled/remaining counts and dropdowns](Screenshots/bitd-clocks-screenshot.png)
+
 ## Usage
 
 Add a `clock` code block to any note:
