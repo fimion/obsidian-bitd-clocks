@@ -55,7 +55,7 @@ Once published: Settings → Community plugins → Browse → search for **Blade
 
 ### Manual
 
-1. Download `main.js`, `manifest.json` and `styles.css` from the [latest release](../../releases/latest).
+1. Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/fimion/obsidian-bitd-clocks/releases/latest).
 2. Copy them into `<your vault>/.obsidian/plugins/bitd-clocks/`.
 3. Reload Obsidian and enable the plugin under Settings → Community plugins.
 
