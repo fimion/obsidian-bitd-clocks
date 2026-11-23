@@ -1,0 +1,111 @@
+.bitd-clock-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5em;
+}
+
+.bitd-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.75em 1em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px);
+  background: var(--background-secondary);
+  min-width: 160px;
+}
+
+.bitd-clock-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25em;
+  width: 100%;
+}
+
+.bitd-clock-actions {
+  display: flex;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+.bitd-clock:hover .bitd-clock-actions,
+.bitd-clock-actions:focus-within {
+  opacity: 1;
+}
+
+.bitd-clock-action {
+  padding: 2px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.bitd-clock-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.bitd-clock-name {
+  font-weight: var(--font-bold, 700);
+  font-size: 1.05em;
+  text-align: center;
+}
+
+.bitd-clock-slice {
+  stroke: none;
+}
+
+.bitd-clock-divider {
+  stroke: var(--bitd-clock-line, var(--interactive-accent));
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.bitd-clock-rim {
+  fill: none;
+  stroke: var(--bitd-clock-line, var(--interactive-accent));
+  stroke-width: 2;
+}
+
+.bitd-clock-slice.is-filled {
+  fill: var(--text-normal);
+}
+
+.bitd-clock-slice.is-empty {
+  fill: var(--background-primary);
+}
+
+.bitd-clock-status {
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+.bitd-clock-controls {
+  display: flex;
+  gap: 0.75em;
+  font-size: 0.85em;
+}
+
+.bitd-clock-controls select {
+  margin-left: 0.25em;
+}
+
+.bitd-clock-add {
+  align-self: center;
+  min-width: 120px;
+  min-height: 120px;
+  border: 2px dashed var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.bitd-clock-add:hover {
+  color: var(--text-normal);
+  border-color: var(--text-muted);
+}
+
+.bitd-clock-error {
+  color: var(--text-error);
+}

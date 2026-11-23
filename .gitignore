@@ -1,0 +1,10 @@
+# Obsidian stores plugin settings here when the repo is symlinked into a vault
+data.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Node (if a build step is added later)
+node_modules/
