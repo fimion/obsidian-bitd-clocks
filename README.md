@@ -29,20 +29,25 @@ Or put several clocks in one block with a YAML list:
 ```
 ````
 
-| Key      | Description                         | Default |
-| -------- | ----------------------------------- | ------- |
-| `name`   | Label shown above the clock         | `Clock` |
-| `slices` | Total number of slices (1–12)       | `4`     |
-| `filled` | Number of filled slices (0–`slices`) | `0`     |
+| Key           | Description                                                          | Default |
+| ------------- | -------------------------------------------------------------------- | ------- |
+| `name`        | Label shown above the clock (supports Markdown & wiki links)         | `Clock` |
+| `description` | Optional details shown below the clock (supports Markdown & wiki links) | *(none)* |
+| `slices`      | Total number of slices (1–12)                                        | `4`     |
+| `filled`      | Number of filled slices (0–`slices`)                                 | `0`     |
+
+> [!tip]
+> When writing YAML by hand, wrap values containing `[[wikilinks]]` or `[Markdown](links)` in quotes (e.g. `name: "[[Bluecoats]] Patrol"`) so YAML doesn't parse `[` as a list.
 
 ## Features
 
 - **Pie-style clock** with dividers for each slice, plus a "filled · remaining" readout.
+- **Optional description & Markdown links** — both `name` and `description` render Markdown and internal `[[wikilinks]]` (with click navigation and hover previews).
 - **Dropdowns** to change the filled count and total slices — changes are written straight back to the YAML.
 - **Add clocks without touching YAML**
   - Command palette: **Blades in the Dark Clocks: Insert clock** inserts a new block at the cursor.
   - The **+ Add clock** button on any block appends another clock to it.
-- **Rename** (pencil) and **delete** (trash) buttons on each clock.
+- **Edit** (pencil) and **delete** (trash) buttons on each clock.
 - **Configurable line colour** for the outline and dividers (Settings → Blades in the Dark Clocks). Defaults to your theme's accent colour.
 - Works in Reading view and Live Preview, on desktop and mobile.
 

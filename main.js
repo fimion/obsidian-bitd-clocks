@@ -1,6 +1,19 @@
 "use strict";
 
-const { Plugin, PluginSettingTab, Modal, Setting, setIcon, parseYaml, stringifyYaml, TFile } = require("obsidian");
+const {
+  Plugin,
+  PluginSettingTab,
+  Modal,
+  Setting,
+  setIcon,
+  parseYaml,
+  stringifyYaml,
+  TFile,
+  MarkdownRenderer,
+  MarkdownRenderChild,
+  Keymap,
+  prepareFuzzySearch,
+} = require("obsidian");
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MAX_SLICES = 12;
@@ -16,12 +29,18 @@ function normalizeClock(raw) {
   const obj = raw && typeof raw === "object" ? raw : {};
   const slices = clampInt(obj.slices, MIN_SLICES, MAX_SLICES, 4);
   const filled = clampInt(obj.filled, 0, slices, 0);
-  return {
+  const result = {
     ...obj,
     name: obj.name != null ? String(obj.name) : "Clock",
     slices,
     filled,
   };
+  if (obj.description != null && String(obj.description).trim() !== "") {
+    result.description = String(obj.description);
+  } else {
+    delete result.description;
+  }
+  return result;
 }
 
 function buildPie(slices, filled, size = 120) {
@@ -78,11 +97,202 @@ function buildPie(slices, filled, size = 120) {
   return svg;
 }
 
+class WikilinkSuggest {
+  constructor(app, inputEl, sourcePath, onValueChange) {
+    this.app = app;
+    this.inputEl = inputEl;
+    this.sourcePath = sourcePath || "";
+    this.onValueChange = onValueChange;
+    this.popoverEl = null;
+    this.items = [];
+    this.selectedIndex = 0;
+    this.triggerStart = -1;
+
+    this.onInput = () => this.update();
+    this.onKeyDown = (e) => this.handleKeyDown(e);
+    this.onBlur = () => this.close();
+    this.onResize = () => this.position();
+
+    inputEl.addEventListener("input", this.onInput);
+    inputEl.addEventListener("keydown", this.onKeyDown);
+    inputEl.addEventListener("blur", this.onBlur);
+    window.addEventListener("resize", this.onResize);
+  }
+
+  isOpen() {
+    return this.popoverEl !== null;
+  }
+
+  update() {
+    const pos = this.inputEl.selectionStart;
+    if (pos == null) {
+      this.close();
+      return;
+    }
+
+    const before = this.inputEl.value.slice(0, pos);
+    const match = before.match(/\[\[([^\]\n]*)$/);
+    if (!match) {
+      this.close();
+      return;
+    }
+
+    this.triggerStart = match.index;
+    const query = match[1];
+    const files = this.app.vault.getMarkdownFiles();
+
+    if (!query) {
+      this.items = [...files].sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 12);
+    } else {
+      const fuzzy = prepareFuzzySearch(query);
+      const scored = [];
+      for (const file of files) {
+        const nameMatch = fuzzy(file.basename);
+        const pathMatch = fuzzy(file.path.slice(0, -3));
+        const best =
+          nameMatch && pathMatch
+            ? nameMatch.score >= pathMatch.score
+              ? nameMatch
+              : pathMatch
+            : nameMatch || pathMatch;
+        if (best) scored.push({ file, score: best.score });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      this.items = scored.slice(0, 12).map((m) => m.file);
+    }
+
+    if (this.items.length === 0) {
+      this.close();
+      return;
+    }
+
+    this.selectedIndex = 0;
+    this.render();
+  }
+
+  render() {
+    if (!this.popoverEl) {
+      this.popoverEl = document.body.createDiv({ cls: "suggestion-container bitd-clock-suggest" });
+    }
+    this.popoverEl.empty();
+
+    const listEl = this.popoverEl.createDiv({ cls: "suggestion" });
+    this.items.forEach((file, index) => {
+      const itemEl = listEl.createDiv({
+        cls: index === this.selectedIndex ? "suggestion-item is-selected" : "suggestion-item",
+      });
+      const contentEl = itemEl.createDiv({ cls: "suggestion-content" });
+      contentEl.createDiv({ cls: "suggestion-title", text: file.basename });
+      if (file.parent && file.parent.path) {
+        contentEl.createDiv({ cls: "suggestion-note", text: file.parent.path });
+      }
+
+      itemEl.addEventListener("mouseenter", () => this.setSelected(index));
+      itemEl.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.select(index);
+      });
+    });
+
+    this.position();
+  }
+
+  position() {
+    if (!this.popoverEl) return;
+    const rect = this.inputEl.getBoundingClientRect();
+    const width = Math.max(rect.width, 220);
+    const left = Math.min(rect.left, Math.max(8, window.innerWidth - width - 8));
+    this.popoverEl.style.left = `${left}px`;
+    this.popoverEl.style.width = `${width}px`;
+
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow < 160 && rect.top > spaceBelow) {
+      this.popoverEl.style.top = "auto";
+      this.popoverEl.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+    } else {
+      this.popoverEl.style.bottom = "auto";
+      this.popoverEl.style.top = `${rect.bottom + 4}px`;
+    }
+  }
+
+  setSelected(index) {
+    if (!this.popoverEl || !this.items.length) return;
+    this.selectedIndex = (index + this.items.length) % this.items.length;
+    const nodes = this.popoverEl.querySelectorAll(".suggestion-item");
+    nodes.forEach((node, i) => {
+      node.classList.toggle("is-selected", i === this.selectedIndex);
+    });
+    const active = nodes[this.selectedIndex];
+    if (active) active.scrollIntoView({ block: "nearest" });
+  }
+
+  select(index) {
+    const file = this.items[index];
+    if (!file) return;
+
+    const value = this.inputEl.value;
+    const pos = this.inputEl.selectionStart ?? value.length;
+    const link = this.app.fileManager.generateMarkdownLink(file, this.sourcePath);
+    let after = value.slice(pos);
+    if (after.startsWith("]]") && link.endsWith("]]")) {
+      after = after.slice(2);
+    }
+
+    const nextValue = value.slice(0, this.triggerStart) + link + after;
+    const nextCursor = this.triggerStart + link.length;
+    this.inputEl.value = nextValue;
+    this.inputEl.setSelectionRange(nextCursor, nextCursor);
+    this.onValueChange(nextValue);
+    this.close();
+    this.inputEl.focus();
+  }
+
+  handleKeyDown(e) {
+    if (!this.isOpen()) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.setSelected(this.selectedIndex + 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.setSelected(this.selectedIndex - 1);
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.select(this.selectedIndex);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+    }
+  }
+
+  close() {
+    if (this.popoverEl) {
+      this.popoverEl.remove();
+      this.popoverEl = null;
+    }
+    this.items = [];
+    this.triggerStart = -1;
+  }
+
+  destroy() {
+    this.close();
+    this.inputEl.removeEventListener("input", this.onInput);
+    this.inputEl.removeEventListener("keydown", this.onKeyDown);
+    this.inputEl.removeEventListener("blur", this.onBlur);
+    window.removeEventListener("resize", this.onResize);
+  }
+}
+
 class NewClockModal extends Modal {
-  constructor(app, onSubmit) {
+  constructor(app, sourcePath, onSubmit) {
     super(app);
+    this.sourcePath = sourcePath;
     this.onSubmit = onSubmit;
-    this.clock = { name: "", slices: 4, filled: 0 };
+    this.clock = { name: "", description: "", slices: 4, filled: 0 };
+    this.suggests = [];
   }
 
   onOpen() {
@@ -91,13 +301,29 @@ class NewClockModal extends Modal {
 
     new Setting(contentEl).setName("Name").addText((text) => {
       text.setPlaceholder("e.g. Bluecoat Patrol Alerted").onChange((v) => (this.clock.name = v));
+      const suggest = new WikilinkSuggest(this.app, text.inputEl, this.sourcePath, (v) => {
+        this.clock.name = v;
+      });
+      this.suggests.push(suggest);
       text.inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
+        if (e.key === "Enter" && !suggest.isOpen()) {
           e.preventDefault();
           this.submit();
         }
       });
       setTimeout(() => text.inputEl.focus(), 0);
+    });
+
+    new Setting(contentEl).setName("Description").addTextArea((ta) => {
+      ta.setPlaceholder("Optional details (type [[ to link a note)").onChange(
+        (v) => (this.clock.description = v)
+      );
+      ta.inputEl.rows = 3;
+      this.suggests.push(
+        new WikilinkSuggest(this.app, ta.inputEl, this.sourcePath, (v) => {
+          this.clock.description = v;
+        })
+      );
     });
 
     new Setting(contentEl).setName("Slices").addDropdown((dd) => {
@@ -112,33 +338,56 @@ class NewClockModal extends Modal {
 
   submit() {
     const name = this.clock.name.trim() || "Clock";
+    const description = this.clock.description.trim();
+    const clock = { name, slices: this.clock.slices, filled: 0 };
+    if (description) clock.description = description;
     this.close();
-    this.onSubmit({ name, slices: this.clock.slices, filled: 0 });
+    this.onSubmit(clock);
   }
 
   onClose() {
+    this.suggests.forEach((s) => s.destroy());
+    this.suggests = [];
     this.contentEl.empty();
   }
 }
 
-class RenameClockModal extends Modal {
-  constructor(app, currentName, onSubmit) {
+class EditClockModal extends Modal {
+  constructor(app, clock, sourcePath, onSubmit) {
     super(app);
-    this.name = currentName;
+    this.name = clock.name;
+    this.description = clock.description || "";
+    this.sourcePath = sourcePath;
     this.onSubmit = onSubmit;
+    this.suggests = [];
   }
 
   onOpen() {
-    this.titleEl.setText("Rename clock");
+    this.titleEl.setText("Edit clock");
     new Setting(this.contentEl).setName("Name").addText((text) => {
       text.setValue(this.name).onChange((v) => (this.name = v));
+      const suggest = new WikilinkSuggest(this.app, text.inputEl, this.sourcePath, (v) => {
+        this.name = v;
+      });
+      this.suggests.push(suggest);
       text.inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
+        if (e.key === "Enter" && !suggest.isOpen()) {
           e.preventDefault();
           this.submit();
         }
       });
       setTimeout(() => text.inputEl.select(), 0);
+    });
+    new Setting(this.contentEl).setName("Description").addTextArea((ta) => {
+      ta.setPlaceholder("Optional details (type [[ to link a note)")
+        .setValue(this.description)
+        .onChange((v) => (this.description = v));
+      ta.inputEl.rows = 3;
+      this.suggests.push(
+        new WikilinkSuggest(this.app, ta.inputEl, this.sourcePath, (v) => {
+          this.description = v;
+        })
+      );
     });
     new Setting(this.contentEl).addButton((btn) =>
       btn.setButtonText("Save").setCta().onClick(() => this.submit())
@@ -148,11 +397,14 @@ class RenameClockModal extends Modal {
   submit() {
     const name = this.name.trim();
     if (!name) return;
+    const description = this.description.trim();
     this.close();
-    this.onSubmit(name);
+    this.onSubmit({ name, description });
   }
 
   onClose() {
+    this.suggests.forEach((s) => s.destroy());
+    this.suggests = [];
     this.contentEl.empty();
   }
 }
@@ -241,8 +493,9 @@ module.exports = class BitDClocksPlugin extends Plugin {
     this.addCommand({
       id: "insert-clock",
       name: "Insert clock",
-      editorCallback: (editor) => {
-        new NewClockModal(this.app, (clock) => {
+      editorCallback: (editor, view) => {
+        const sourcePath = view && view.file ? view.file.path : "";
+        new NewClockModal(this.app, sourcePath, (clock) => {
           const block = "```clock\n" + stringifyYaml(clock).trimEnd() + "\n```\n";
           const cursor = editor.getCursor();
           const prefix = cursor.ch === 0 ? "" : "\n";
@@ -290,18 +543,29 @@ module.exports = class BitDClocksPlugin extends Plugin {
     const clocks = (data == null ? [] : isList ? data : [data]).map(normalizeClock);
     const commit = (list) => this.save(el, ctx, isList || list.length !== 1 ? list : list[0]);
 
+    const renderChild = new MarkdownRenderChild(el);
+    ctx.addChild(renderChild);
+
     const container = el.createDiv({ cls: "bitd-clock-container" });
     clocks.forEach((clock, index) => {
       this.renderClock(container, clock, {
+        sourcePath: ctx.sourcePath,
+        component: renderChild,
         onChange: (updated) => {
           const next = [...clocks];
           next[index] = updated;
           commit(next);
         },
-        onRename: () => {
-          new RenameClockModal(this.app, clock.name, (name) => {
+        onEdit: () => {
+          new EditClockModal(this.app, clock, ctx.sourcePath, ({ name, description }) => {
             const next = [...clocks];
-            next[index] = { ...clock, name };
+            const updated = { ...clock, name };
+            if (description) {
+              updated.description = description;
+            } else {
+              delete updated.description;
+            }
+            next[index] = updated;
             commit(next);
           }).open();
         },
@@ -319,17 +583,66 @@ module.exports = class BitDClocksPlugin extends Plugin {
     addBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      new NewClockModal(this.app, (clock) => {
+      new NewClockModal(this.app, ctx.sourcePath, (clock) => {
         this.save(el, ctx, [...clocks, clock]);
       }).open();
     });
   }
 
-  renderClock(parent, clock, { onChange, onRename, onDelete }) {
+  renderMarkdownField(markdown, containerEl, sourcePath, component) {
+    MarkdownRenderer.render(this.app, markdown, containerEl, sourcePath, component);
+
+    const getInternalLink = (target) => {
+      const anchor = target instanceof Element ? target.closest("a.internal-link") : null;
+      if (!anchor) return null;
+      const href = anchor.getAttribute("data-href") || anchor.getAttribute("href");
+      return href ? { anchor, href } : null;
+    };
+
+    component.registerDomEvent(containerEl, "mouseover", (evt) => {
+      const link = getInternalLink(evt.target);
+      if (!link) return;
+      this.app.workspace.trigger("hover-link", {
+        event: evt,
+        source: "preview",
+        hoverParent: { hoverPopover: null },
+        targetEl: link.anchor,
+        linktext: link.href,
+        sourcePath,
+      });
+    });
+
+    component.registerDomEvent(containerEl, "click", (evt) => {
+      if (evt.button !== 0) return;
+      const link = getInternalLink(evt.target);
+      if (link) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.app.workspace.openLinkText(link.href, sourcePath, Keymap.isModEvent(evt));
+        return;
+      }
+      const external = evt.target instanceof Element ? evt.target.closest("a.external-link") : null;
+      if (external) {
+        evt.stopPropagation();
+      }
+    });
+
+    component.registerDomEvent(containerEl, "auxclick", (evt) => {
+      if (evt.button !== 1) return;
+      const link = getInternalLink(evt.target);
+      if (!link) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.app.workspace.openLinkText(link.href, sourcePath, "tab");
+    });
+  }
+
+  renderClock(parent, clock, { sourcePath, component, onChange, onEdit, onDelete }) {
     const wrap = parent.createDiv({ cls: "bitd-clock" });
 
     const header = wrap.createDiv({ cls: "bitd-clock-header" });
-    header.createDiv({ cls: "bitd-clock-name", text: clock.name });
+    const nameEl = header.createDiv({ cls: "bitd-clock-name" });
+    this.renderMarkdownField(clock.name, nameEl, sourcePath, component);
     const actions = header.createDiv({ cls: "bitd-clock-actions" });
     const iconButton = (icon, label, handler) => {
       const btn = actions.createEl("button", {
@@ -343,7 +656,7 @@ module.exports = class BitDClocksPlugin extends Plugin {
         handler();
       });
     };
-    iconButton("pencil", "Rename clock", onRename);
+    iconButton("pencil", "Edit clock", onEdit);
     iconButton("trash-2", "Delete clock", onDelete);
 
     wrap.appendChild(buildPie(clock.slices, clock.filled));
@@ -381,6 +694,11 @@ module.exports = class BitDClocksPlugin extends Plugin {
       const slices = parseInt(totalSelect.value, 10);
       onChange({ ...clock, slices, filled: Math.min(clock.filled, slices) });
     });
+
+    if (clock.description) {
+      const descEl = wrap.createDiv({ cls: "bitd-clock-description" });
+      this.renderMarkdownField(clock.description, descEl, sourcePath, component);
+    }
   }
 
   async save(el, ctx, data) {
