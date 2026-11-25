@@ -1,7 +1,7 @@
 {
   "id": "bitd-clocks",
   "name": "Blades in the Dark Clocks",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "minAppVersion": "1.4.0",
   "description": "Render Blades in the Dark style progress clocks from YAML code blocks.",
   "author": "Alex Riviere",
